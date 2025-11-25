@@ -76,27 +76,27 @@
     <nav class="navbar navbar-dark bg-primary sticky-top">
         <div class="container">
             <div class="d-flex align-items-center">
-                <a class="navbar-brand fw-bold" href="index.html">🍔 IIITB Tuck Shop</a>
+                <a class="navbar-brand fw-bold" href="index.html">IIITB Tuck Shop</a>
                 <small class="text-white-50 ms-3">
                     <span id="connection-status" class="status-indicator status-disconnected"></span>
                     <span id="connection-text">Connecting...</span>
                 </small>
             </div>
             <button class="btn btn-warning cart-btn position-relative fw-bold" onclick="showCart()">
-                🛒 Cart <span id="cart-count" class="badge bg-danger rounded-pill ms-1">0</span>
+                Cart <span id="cart-count" class="badge bg-danger rounded-pill ms-1">0</span>
             </button>
         </div>
     </nav>
 
     <div class="container mt-5 pb-5">
         <div class="mb-4">
-            <h2 class="fw-bold text-dark">📋 Today's Menu</h2>
+            <h2 class="fw-bold text-dark">Today's Menu</h2>
             <p class="text-muted">Fresh and delicious items made just for you</p>
         </div>
         <div id="menu-container" class="row g-4">
             <div class="text-center mt-5 w-100">
                 <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
-                <p class="text-muted mt-3">Loading delicious items...</p>
+                <p class="text-muted mt-3">Loading menu...</p>
             </div>
         </div>
     </div>
@@ -107,6 +107,8 @@
         // Generate a random student ID for this session
         const STUDENT_ID = "student_" + Math.floor(Math.random() * 9000 + 1000);
         let cart = [];
+        let awaitingOrderResponse = false;
+        let currentOrderId = null;
 
         // 1. Initialize SignalR (For Notifications)
         const connection = new signalR.HubConnectionBuilder()
@@ -172,34 +174,56 @@
             console.log("Connection closed");
         });
 
-        // 2. Listen for "Your Food is Ready"
+        // 2. Listen for order status updates
         connection.on("orderUpdated", (order) => {
             // Only alert if it's MY order
             if (order.studentId === STUDENT_ID) {
                 if (order.status === 'ACCEPTED') {
-                    Swal.fire({
-                        toast: true, position: 'top-end', icon: 'info',
-                        title: 'Order Accepted!', text: 'The cook is preparing your food.', timer: 3000, timerProgressBar: true
-                    });
+                    // If we're waiting for order response, close loading and show accepted
+                    if (awaitingOrderResponse && order.id === currentOrderId) {
+                        awaitingOrderResponse = false;
+                        Swal.fire({
+                            title: 'Order Accepted',
+                            text: `Order #${order.id} has been accepted. The kitchen is preparing your food.`,
+                            icon: 'success',
+                            confirmButtonText: 'OK',
+                            timer: 5000,
+                            timerProgressBar: true
+                        });
+                    } else {
+                        // Regular notification for already placed orders
+                        Swal.fire({
+                            toast: true,
+                            position: 'top-end',
+                            icon: 'info',
+                            title: 'Order Accepted',
+                            text: 'The kitchen is preparing your food.',
+                            timer: 3000,
+                            timerProgressBar: true,
+                            showConfirmButton: false
+                        });
+                    }
                 }
                 else if (order.status === 'READY') {
-                    // Play notification sound (optional)
-                    // new Audio('ping.mp3').play().catch(()=>{});
                     Swal.fire({
-                        title: '🍔 FOOD READY!',
-                        text: `Order #${order.id} is ready at the counter!`,
+                        title: 'Food Ready',
+                        text: `Order #${order.id} is ready for pickup at the counter.`,
                         icon: 'success',
-                        confirmButtonText: 'On my way!',
-                        backdrop: `rgba(0,123,0,0.4)`
+                        confirmButtonText: 'Acknowledged',
+                        allowOutsideClick: false
                     });
                 }
                 else if (order.status === 'REJECTED') {
+                    // If we're waiting for order response, close loading and show rejected
+                    if (awaitingOrderResponse && order.id === currentOrderId) {
+                        awaitingOrderResponse = false;
+                    }
                     Swal.fire({
-                        title: '❌ Order Rejected',
-                        text: `Sorry, order #${order.id} could not be processed. Please try again or contact the kitchen.`,
+                        title: 'Order Rejected',
+                        text: `Order #${order.id} could not be processed. The item may be unavailable or the kitchen is too busy. Please try again later.`,
                         icon: 'error',
-                        confirmButtonText: 'OK',
-                        backdrop: `rgba(255,0,0,0.2)`
+                        confirmButtonText: 'Understood',
+                        allowOutsideClick: false
                     });
                 }
             }
@@ -221,8 +245,7 @@
                 <div class="col-lg-3 col-md-4 col-sm-6">
                     <div class="card menu-card h-100 shadow-sm">
                         <div style="height:180px; background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%); display:flex; align-items:center; justify-content:center; overflow:hidden;">
-                            <img src="${item.image || ''}" style="max-height:100%; max-width:100%; object-fit:cover;" onerror="this.style.display='none'">
-                            <span class="text-muted fs-1" style="${item.image ? 'display:none' : ''}">🍔</span>
+                            <img src="${item.image || ''}" style="max-height:100%; max-width:100%; object-fit:cover;" onerror="this.parentElement.innerHTML='<div class=\'text-muted fs-1\'>Food Item</div>'">
                         </div>
                         <div class="card-body d-flex flex-column">
                             <div class="d-flex justify-content-between align-items-start mb-3">
@@ -230,7 +253,7 @@
                                 <span class="badge bg-success price-badge">₹${item.price}</span>
                             </div>
                             <button class="btn add-to-cart-btn w-100 mt-auto" onclick='addToCart(${JSON.stringify(item)})'>
-                                <span class="fw-bold">+ Add to Cart</span>
+                                <span class="fw-bold">Add to Cart</span>
                             </button>
                         </div>
                     </div>
@@ -257,7 +280,7 @@
             if (cart.length === 0) {
                 return Swal.fire({
                     title: 'Cart is Empty',
-                    text: 'Add some delicious items to your cart first!',
+                    text: 'Add some delicious items to your cart first.',
                     icon: 'info',
                     confirmButtonText: 'OK'
                 });
@@ -283,7 +306,7 @@
                 .join('');
 
             const result = await Swal.fire({
-                title: '🛒 Your Cart',
+                title: 'Your Cart',
                 html: `
                     <div class="text-start">
                         ${itemsList}
@@ -296,7 +319,7 @@
                     </div>
                 `,
                 showCancelButton: true,
-                confirmButtonText: '✓ Place Order',
+                confirmButtonText: 'Place Order',
                 cancelButtonText: 'Cancel',
                 confirmButtonColor: '#28a745',
                 cancelButtonColor: '#6c757d',
@@ -307,13 +330,6 @@
         }
 
         async function placeOrder(total) {
-            Swal.fire({
-                title: 'Placing Order...',
-                text: 'Please wait',
-                allowOutsideClick: false,
-                didOpen: () => { Swal.showLoading(); }
-            });
-
             const payload = {
                 studentId: STUDENT_ID,
                 totalAmount: total,
@@ -321,6 +337,16 @@
             };
 
             try {
+                // Show initial sending state
+                Swal.fire({
+                    title: 'Sending Order',
+                    text: 'Please wait...',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                    didOpen: () => { Swal.showLoading(); }
+                });
+
                 const response = await fetch(`${API_URL}/createOrder`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -332,19 +358,50 @@
                 }
 
                 const result = await response.json();
+                currentOrderId = result.id;
                 cart = [];
                 document.getElementById('cart-count').innerText = 0;
 
+                // Set flag and show persistent loading screen
+                awaitingOrderResponse = true;
+
                 Swal.fire({
-                    title: 'Order Placed!',
-                    html: `Your order has been sent to the kitchen.<br><small class="text-muted">Order ID: ${result.id || 'Pending'}</small><br><small class="text-muted">Student ID: ${STUDENT_ID}</small>`,
-                    icon: 'success',
-                    confirmButtonText: 'Great!',
-                    timer: 5000,
-                    timerProgressBar: true
+                    title: 'Order Submitted',
+                    html: `
+                        <div class="mb-3">
+                            <p class="mb-2">Your order has been sent to the kitchen.</p>
+                            <div class="text-muted small">Order ID: <strong>${result.id}</strong></div>
+                            <div class="text-muted small">Student ID: <strong>${STUDENT_ID}</strong></div>
+                        </div>
+                        <hr>
+                        <div class="d-flex align-items-center justify-content-center mt-3">
+                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                            <span class="text-muted">Waiting for kitchen response...</span>
+                        </div>
+                    `,
+                    icon: 'info',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                    showCloseButton: false
                 });
+
+                // Auto-close the loading screen after 60 seconds with a timeout message
+                setTimeout(() => {
+                    if (awaitingOrderResponse) {
+                        awaitingOrderResponse = false;
+                        Swal.fire({
+                            title: 'Still Processing',
+                            text: 'Your order is taking longer than expected. You will be notified when the kitchen responds.',
+                            icon: 'warning',
+                            confirmButtonText: 'OK'
+                        });
+                    }
+                }, 60000);
+
             } catch (e) {
                 console.error('Order placement failed:', e);
+                awaitingOrderResponse = false;
                 Swal.fire({
                     title: 'Order Failed',
                     text: 'Could not place order. Please check your connection and try again.',
