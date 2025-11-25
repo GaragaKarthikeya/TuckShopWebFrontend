@@ -41,12 +41,12 @@
     </div>
 
     <script>
-        // ✅ YOUR CLOUD API URL
+        // ✅ YOUR CLOUD API URL (Keep your existing one)
         const API_URL = "https://tuckshop-api-karthikeya.azurewebsites.net/api";
         
         // Setup Connection
         const connection = new signalR.HubConnectionBuilder()
-            .withUrl(API_URL)
+            .withUrl(API_URL) 
             .withAutomaticReconnect()
             .configureLogging(signalR.LogLevel.Information)
             .build();
@@ -54,59 +54,107 @@
         async function start() {
             try {
                 await connection.start();
-                updateStatus(true);
+                updateStatusUI(true);
             } catch (err) {
                 console.error(err);
-                updateStatus(false);
-                setTimeout(start, 5000); // Retry after 5s
+                updateStatusUI(false);
+                setTimeout(start, 5000);
             }
         }
 
-        // Handle Status UI
-        function updateStatus(isConnected) {
+        function updateStatusUI(isConnected) {
             const dot = document.getElementById('status-dot');
             const text = document.getElementById('status-text');
             if (isConnected) {
                 dot.className = "status-dot connected";
                 text.innerText = "Live & Connected";
-                text.className = "small text-success fw-bold";
             } else {
                 dot.className = "status-dot disconnected";
-                text.innerText = "Disconnected (Retrying...)";
-                text.className = "small text-danger";
+                text.innerText = "Disconnected";
             }
         }
 
-        // LISTEN FOR ORDERS
-        connection.on("newOrder", (order) => {
-            document.getElementById('empty-state').style.display = 'none';
-            addOrderCard(order);
-        });
+        // ==========================================
+        // 1. THE NEW BUTTON LOGIC (State Machine)
+        // ==========================================
+        function getButtonsHtml(order) {
+            const id = order.id;
+            const sId = order.studentId;
+            
+            if (order.status === 'PENDING') {
+                return `
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button class="btn btn-outline-danger w-100" onclick="sendUpdate('${id}', '${sId}', 'REJECTED')">Reject</button>
+                        </div>
+                        <div class="col-6">
+                            <button class="btn btn-primary w-100" onclick="sendUpdate('${id}', '${sId}', 'ACCEPTED')">Accept</button>
+                        </div>
+                    </div>`;
+            } else if (order.status === 'ACCEPTED') {
+                return `<button class="btn btn-warning w-100 fw-bold" onclick="sendUpdate('${id}', '${sId}', 'READY')">⚡ Mark Ready</button>`;
+            } else if (order.status === 'READY') {
+                return `<button class="btn btn-success w-100 fw-bold" onclick="sendUpdate('${id}', '${sId}', 'COMPLETED')">💰 Paid & Delivered</button>`;
+            } else {
+                return `<div class="alert alert-success p-1 text-center m-0">Completed</div>`;
+            }
+        }
+
+        // ==========================================
+        // 2. THE API CALL (Talks to your new Function)
+        // ==========================================
+        async function sendUpdate(orderId, studentId, newStatus) {
+            // Visual feedback - disable buttons temporarily? 
+            // We rely on the server response to update the UI via SignalR.
+            try {
+                await fetch(`${API_URL}/updateOrder`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, studentId, newStatus })
+                });
+            } catch (e) {
+                alert("Failed to update order");
+            }
+        }
+
+        // ==========================================
+        // 3. RENDER LOGIC
+        // ==========================================
+        connection.on("newOrder", (order) => { addOrderCard(order); });
+        
+        // LISTEN FOR UPDATES TOO!
+        connection.on("orderUpdated", (order) => { addOrderCard(order); });
 
         function addOrderCard(order) {
-            const container = document.getElementById('orders-container');
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('empty-state').style.display = 'none';
+            
+            // If card exists, remove it so we can re-render it with new state
+            const existing = document.getElementById(`card-${order.id}`);
+            if (existing) existing.remove();
 
-            const itemsHtml = order.items.map(i => 
-                `<li class="list-group-item d-flex justify-content-between align-items-center">
-                    <span class="fw-bold">${i.qty}x ${i.name}</span>
-                 </li>`
-            ).join('');
+            // If it's done or rejected, don't show it anymore (clean up board)
+            if (order.status === 'COMPLETED' || order.status === 'REJECTED') return;
+
+            const container = document.getElementById('orders-container');
+            const itemsHtml = order.items.map(i => `<li>${i.qty}x ${i.name}</li>`).join('');
+
+            // Dynamic border color based on status
+            let borderClass = "border-warning"; 
+            if(order.status === 'ACCEPTED') borderClass = "border-primary";
+            if(order.status === 'READY') borderClass = "border-success";
 
             const cardHtml = `
-                <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
-                    <div class="card order-card shadow-lg">
-                        <div class="card-header bg-warning d-flex justify-content-between align-items-center">
-                            <span class="fw-bold text-dark">#${order.id}</span>
-                            <span class="badge bg-dark">${time}</span>
+                <div class="col-xl-3 col-lg-4 col-md-6 mb-4" id="card-${order.id}">
+                    <div class="card order-card shadow-lg ${borderClass}" style="border-top: 5px solid;">
+                        <div class="card-header bg-light d-flex justify-content-between">
+                            <strong>#${order.id}</strong>
+                            <span class="badge bg-secondary">${order.status}</span>
                         </div>
                         <div class="card-body">
-                            <h6 class="card-subtitle mb-3 text-muted">User: ${order.studentId}</h6>
-                            <ul class="list-group list-group-flush mb-3 border">
-                                ${itemsHtml}
-                            </ul>
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-success btn-lg" onclick="this.closest('.col-xl-3').remove()">✅ Ready</button>
+                            <h6 class="text-muted">User: ${order.studentId}</h6>
+                            <ul class="list-unstyled fw-bold mb-3">${itemsHtml}</ul>
+                            <div class="mt-2">
+                                ${getButtonsHtml(order)}
                             </div>
                         </div>
                     </div>
@@ -115,7 +163,6 @@
             container.insertAdjacentHTML('afterbegin', cardHtml);
         }
 
-        // Start the engine
         start();
     </script>
 </body>
