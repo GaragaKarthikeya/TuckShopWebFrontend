@@ -5,108 +5,132 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Food - IIITB</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> </head>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+</head>
 <body class="bg-light">
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top shadow-sm">
+    <nav class="navbar navbar-dark bg-primary sticky-top shadow-sm">
         <div class="container">
             <a class="navbar-brand fw-bold" href="index.html">🍔 IIITB Tuck Shop</a>
             <button class="btn btn-warning position-relative" onclick="showCart()">
-                🛒 Cart
-                <span id="cart-count" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">0</span>
+                🛒 <span id="cart-count" class="badge bg-danger rounded-pill">0</span>
             </button>
         </div>
     </nav>
 
     <div class="container mt-5">
-        <h2 class="mb-4">📋 Today's Menu</h2>
+        <div id="status-bar" class="alert alert-info text-center" style="display:none;">
+            📡 Connecting to Kitchen...
+        </div>
+
+        <h3 class="mb-4">📋 Today's Menu</h3>
         <div id="menu-container" class="row g-4">
-            <div class="col-12 text-center mt-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="mt-2 text-muted">Loading fresh menu from Azure...</p>
-            </div>
+            <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
         </div>
     </div>
 
     <script>
         // ✅ YOUR CLOUD API URL
         const API_URL = "https://tuckshop-api-karthikeya.azurewebsites.net/api";
+        // Generate a random student ID for this session
         const STUDENT_ID = "student_" + Math.floor(Math.random() * 9000 + 1000);
         let cart = [];
 
-        // 1. Fetch Menu on Load
-        window.onload = async () => {
+        // 1. Initialize SignalR (For Notifications)
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl(API_URL)
+            .withAutomaticReconnect()
+            .build();
+
+        async function initApp() {
+            // Load Menu
             try {
                 const res = await fetch(`${API_URL}/getMenu`);
-                if (!res.ok) throw new Error("API Error");
                 const menu = await res.json();
                 renderMenu(menu);
-            } catch (err) {
-                document.getElementById('menu-container').innerHTML = `
-                    <div class="col-12 text-center">
-                        <div class="alert alert-danger">🔴 System Offline: Could not reach the Cloud API.</div>
-                    </div>`;
+            } catch (e) {
+                document.getElementById('menu-container').innerHTML = `<div class="alert alert-danger">Kitchen Offline</div>`;
             }
-        };
 
-        // 2. Render Menu Cards
+            // Connect to Real-time Updates
+            try {
+                await connection.start();
+                console.log("Connected to Kitchen Updates");
+            } catch(e) { console.error("SignalR Failed", e); }
+        }
+
+        // 2. Listen for "Your Food is Ready"
+        connection.on("orderUpdated", (order) => {
+            // Only alert if it's MY order
+            if (order.studentId === STUDENT_ID) {
+                if (order.status === 'ACCEPTED') {
+                    Swal.fire({
+                        toast: true, position: 'top-end', icon: 'info', 
+                        title: 'Order Accepted!', text: 'The cook is preparing your food.', timer: 3000
+                    });
+                } 
+                else if (order.status === 'READY') {
+                    // Play notification sound (optional)
+                    // new Audio('ping.mp3').play().catch(()=>{});
+                    Swal.fire({
+                        title: '🍔 FOOD READY!',
+                        text: `Order #${order.id} is ready at the counter!`,
+                        icon: 'success',
+                        confirmButtonText: 'On my way!',
+                        backdrop: `rgba(0,123,0,0.4)`
+                    });
+                }
+            }
+        });
+
+        // 3. Render Menu
         function renderMenu(menu) {
             const container = document.getElementById('menu-container');
-            if(menu.length === 0) {
-                container.innerHTML = `<div class="alert alert-warning">No items available right now.</div>`;
-                return;
-            }
+            if(menu.length === 0) { container.innerHTML = "No items."; return; }
 
             container.innerHTML = menu.map(item => `
-                <div class="col-md-4 col-sm-6">
-                    <div class="card h-100 shadow-sm border-0">
-                        <div style="height: 200px; background-color: #eee; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                            <img src="${item.image || 'https://via.placeholder.com/300?text=Yummy+Food'}" style="width:100%; height: 100%; object-fit: cover;" onerror="this.src='https://via.placeholder.com/300?text=No+Image'">
+                <div class="col-md-4 col-6">
+                    <div class="card h-100 shadow-sm">
+                        <div style="height:150px; background:#eee; display:flex; align-items:center; justify-content:center;">
+                            <img src="${item.image || ''}" style="max-height:100%; max-width:100%" onerror="this.style.display='none'">
+                            <span class="text-muted" style="${item.image ? 'display:none' : ''}">🍔</span>
                         </div>
                         <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <h5 class="card-title fw-bold mb-0">${item.name}</h5>
+                            <div class="d-flex justify-content-between">
+                                <h5 class="card-title">${item.name}</h5>
                                 <span class="badge bg-success">₹${item.price}</span>
                             </div>
-                            <p class="text-muted small">${item.description || 'Tasty tuck shop snack.'}</p>
-                            <button class="btn btn-outline-primary w-100" onclick='addToCart(${JSON.stringify(item)})'>Add to Cart ➕</button>
+                            <button class="btn btn-outline-primary w-100 mt-2" onclick='addToCart(${JSON.stringify(item)})'>Add +</button>
                         </div>
                     </div>
                 </div>
             `).join('');
         }
 
-        // 3. Cart Logic
+        // 4. Cart Logic
         function addToCart(item) {
             cart.push(item);
             document.getElementById('cart-count').innerText = cart.length;
-            
-            const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
-            Toast.fire({ icon: 'success', title: `Added ${item.name}` });
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Added!', showConfirmButton: false, timer: 1000 });
         }
 
         async function showCart() {
-            if (cart.length === 0) return Swal.fire('Cart Empty', 'Add some food first!', 'info');
-
-            const total = cart.reduce((sum, item) => sum + item.price, 0);
-            const itemsList = cart.map(i => `• ${i.name} (₹${i.price})`).join('\n');
-
+            if (cart.length === 0) return Swal.fire('Cart Empty');
+            const total = cart.reduce((s, i) => s + i.price, 0);
+            
             const result = await Swal.fire({
-                title: 'Confirm Order?',
-                html: `<pre class="text-start">${itemsList}</pre><h4 class="text-end fw-bold">Total: ₹${total}</h4>`,
+                title: 'Place Order?',
+                html: `Total: <b>₹${total}</b><br>Items: ${cart.length}`,
                 showCancelButton: true,
-                confirmButtonText: '🚀 Place Order',
-                confirmButtonColor: '#28a745'
+                confirmButtonText: 'Place Order'
             });
 
-            if (result.isConfirmed) {
-                await placeOrder(total);
-            }
+            if (result.isConfirmed) placeOrder(total);
         }
 
         async function placeOrder(total) {
-            Swal.showLoading(); // Show loading spinner
-            
+            Swal.showLoading();
             const payload = {
                 studentId: STUDENT_ID,
                 totalAmount: total,
@@ -114,23 +138,21 @@
             };
 
             try {
-                const res = await fetch(`${API_URL}/createOrder`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                await fetch(`${API_URL}/createOrder`, {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload)
                 });
-
-                if (res.ok) {
-                    cart = [];
-                    document.getElementById('cart-count').innerText = 0;
-                    Swal.fire('Success!', 'Order sent to the Kitchen Display.', 'success');
-                } else {
-                    throw new Error("Server rejected order");
-                }
-            } catch (err) {
-                Swal.fire('Error', 'Failed to place order. Check network.', 'error');
+                cart = [];
+                document.getElementById('cart-count').innerText = 0;
+                Swal.fire('Sent!', `Order sent. Your ID: ${STUDENT_ID}`, 'success');
+            } catch (e) {
+                Swal.fire('Error', 'Failed to send order', 'error');
             }
         }
+
+        // Start
+        initApp();
     </script>
 </body>
 </html>
