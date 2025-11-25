@@ -7,26 +7,97 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+        .menu-card {
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .menu-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important;
+        }
+        .menu-card img {
+            transition: transform 0.3s ease;
+        }
+        .menu-card:hover img {
+            transform: scale(1.05);
+        }
+        .cart-btn {
+            transition: all 0.3s ease;
+        }
+        .cart-btn:hover {
+            transform: scale(1.05);
+        }
+        .navbar {
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        .status-connected { background-color: #28a745; }
+        .status-disconnected { background-color: #dc3545; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .price-badge {
+            font-size: 1.1rem;
+            font-weight: bold;
+            padding: 8px 12px;
+        }
+        .add-to-cart-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .add-to-cart-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            color: white;
+        }
+    </style>
 </head>
-<body class="bg-light">
+<body>
 
-    <nav class="navbar navbar-dark bg-primary sticky-top shadow-sm">
+    <nav class="navbar navbar-dark bg-primary sticky-top">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="index.html">🍔 IIITB Tuck Shop</a>
-            <button class="btn btn-warning position-relative" onclick="showCart()">
-                🛒 <span id="cart-count" class="badge bg-danger rounded-pill">0</span>
+            <div class="d-flex align-items-center">
+                <a class="navbar-brand fw-bold" href="index.html">🍔 IIITB Tuck Shop</a>
+                <small class="text-white-50 ms-3">
+                    <span id="connection-status" class="status-indicator status-disconnected"></span>
+                    <span id="connection-text">Connecting...</span>
+                </small>
+            </div>
+            <button class="btn btn-warning cart-btn position-relative fw-bold" onclick="showCart()">
+                🛒 Cart <span id="cart-count" class="badge bg-danger rounded-pill ms-1">0</span>
             </button>
         </div>
     </nav>
 
-    <div class="container mt-5">
-        <div id="status-bar" class="alert alert-info text-center" style="display:none;">
-            📡 Connecting to Kitchen...
+    <div class="container mt-5 pb-5">
+        <div class="mb-4">
+            <h2 class="fw-bold text-dark">📋 Today's Menu</h2>
+            <p class="text-muted">Fresh and delicious items made just for you</p>
         </div>
-
-        <h3 class="mb-4">📋 Today's Menu</h3>
         <div id="menu-container" class="row g-4">
-            <div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>
+            <div class="text-center mt-5 w-100">
+                <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+                <p class="text-muted mt-3">Loading delicious items...</p>
+            </div>
         </div>
     </div>
 
@@ -47,18 +118,59 @@
             // Load Menu
             try {
                 const res = await fetch(`${API_URL}/getMenu`);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
                 const menu = await res.json();
                 renderMenu(menu);
             } catch (e) {
-                document.getElementById('menu-container').innerHTML = `<div class="alert alert-danger">Kitchen Offline</div>`;
+                console.error("Failed to load menu:", e);
+                document.getElementById('menu-container').innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-danger text-center">
+                            <h5>⚠️ Kitchen Offline</h5>
+                            <p class="mb-0">Unable to load menu. Please check your connection and refresh the page.</p>
+                        </div>
+                    </div>`;
             }
 
             // Connect to Real-time Updates
             try {
                 await connection.start();
                 console.log("Connected to Kitchen Updates");
-            } catch(e) { console.error("SignalR Failed", e); }
+                updateConnectionStatus(true);
+            } catch(e) {
+                console.error("SignalR Failed", e);
+                updateConnectionStatus(false);
+            }
         }
+
+        function updateConnectionStatus(isConnected) {
+            const statusDot = document.getElementById('connection-status');
+            const statusText = document.getElementById('connection-text');
+            if (isConnected) {
+                statusDot.className = 'status-indicator status-connected';
+                statusText.textContent = 'Live';
+            } else {
+                statusDot.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Offline';
+            }
+        }
+
+        connection.onreconnecting(() => {
+            updateConnectionStatus(false);
+            console.log("Reconnecting...");
+        });
+
+        connection.onreconnected(() => {
+            updateConnectionStatus(true);
+            console.log("Reconnected!");
+        });
+
+        connection.onclose(() => {
+            updateConnectionStatus(false);
+            console.log("Connection closed");
+        });
 
         // 2. Listen for "Your Food is Ready"
         connection.on("orderUpdated", (order) => {
@@ -66,10 +178,10 @@
             if (order.studentId === STUDENT_ID) {
                 if (order.status === 'ACCEPTED') {
                     Swal.fire({
-                        toast: true, position: 'top-end', icon: 'info', 
-                        title: 'Order Accepted!', text: 'The cook is preparing your food.', timer: 3000
+                        toast: true, position: 'top-end', icon: 'info',
+                        title: 'Order Accepted!', text: 'The cook is preparing your food.', timer: 3000, timerProgressBar: true
                     });
-                } 
+                }
                 else if (order.status === 'READY') {
                     // Play notification sound (optional)
                     // new Audio('ping.mp3').play().catch(()=>{});
@@ -81,27 +193,45 @@
                         backdrop: `rgba(0,123,0,0.4)`
                     });
                 }
+                else if (order.status === 'REJECTED') {
+                    Swal.fire({
+                        title: '❌ Order Rejected',
+                        text: `Sorry, order #${order.id} could not be processed. Please try again or contact the kitchen.`,
+                        icon: 'error',
+                        confirmButtonText: 'OK',
+                        backdrop: `rgba(255,0,0,0.2)`
+                    });
+                }
             }
         });
 
         // 3. Render Menu
         function renderMenu(menu) {
             const container = document.getElementById('menu-container');
-            if(menu.length === 0) { container.innerHTML = "No items."; return; }
+            if(!menu || menu.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12 text-center mt-5">
+                        <h4 class="text-muted">No items available</h4>
+                        <p class="text-muted">Check back later for delicious items!</p>
+                    </div>`;
+                return;
+            }
 
             container.innerHTML = menu.map(item => `
-                <div class="col-md-4 col-6">
-                    <div class="card h-100 shadow-sm">
-                        <div style="height:150px; background:#eee; display:flex; align-items:center; justify-content:center;">
-                            <img src="${item.image || ''}" style="max-height:100%; max-width:100%" onerror="this.style.display='none'">
-                            <span class="text-muted" style="${item.image ? 'display:none' : ''}">🍔</span>
+                <div class="col-lg-3 col-md-4 col-sm-6">
+                    <div class="card menu-card h-100 shadow-sm">
+                        <div style="height:180px; background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                            <img src="${item.image || ''}" style="max-height:100%; max-width:100%; object-fit:cover;" onerror="this.style.display='none'">
+                            <span class="text-muted fs-1" style="${item.image ? 'display:none' : ''}">🍔</span>
                         </div>
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <h5 class="card-title">${item.name}</h5>
-                                <span class="badge bg-success">₹${item.price}</span>
+                        <div class="card-body d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="card-title mb-0 fw-bold">${item.name}</h5>
+                                <span class="badge bg-success price-badge">₹${item.price}</span>
                             </div>
-                            <button class="btn btn-outline-primary w-100 mt-2" onclick='addToCart(${JSON.stringify(item)})'>Add +</button>
+                            <button class="btn add-to-cart-btn w-100 mt-auto" onclick='addToCart(${JSON.stringify(item)})'>
+                                <span class="fw-bold">+ Add to Cart</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -112,25 +242,78 @@
         function addToCart(item) {
             cart.push(item);
             document.getElementById('cart-count').innerText = cart.length;
-            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Added!', showConfirmButton: false, timer: 1000 });
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: `${item.name} added!`,
+                showConfirmButton: false,
+                timer: 1500,
+                timerProgressBar: true
+            });
         }
 
         async function showCart() {
-            if (cart.length === 0) return Swal.fire('Cart Empty');
+            if (cart.length === 0) {
+                return Swal.fire({
+                    title: 'Cart is Empty',
+                    text: 'Add some delicious items to your cart first!',
+                    icon: 'info',
+                    confirmButtonText: 'OK'
+                });
+            }
+
             const total = cart.reduce((s, i) => s + i.price, 0);
-            
+
+            // Group items by name and count quantities
+            const itemCounts = {};
+            cart.forEach(item => {
+                if (itemCounts[item.name]) {
+                    itemCounts[item.name].qty++;
+                } else {
+                    itemCounts[item.name] = { ...item, qty: 1 };
+                }
+            });
+
+            const itemsList = Object.values(itemCounts)
+                .map(item => `<div class="d-flex justify-content-between mb-2">
+                    <span>${item.qty}x ${item.name}</span>
+                    <span class="fw-bold">₹${item.qty * item.price}</span>
+                </div>`)
+                .join('');
+
             const result = await Swal.fire({
-                title: 'Place Order?',
-                html: `Total: <b>₹${total}</b><br>Items: ${cart.length}`,
+                title: '🛒 Your Cart',
+                html: `
+                    <div class="text-start">
+                        ${itemsList}
+                        <hr>
+                        <div class="d-flex justify-content-between fs-5">
+                            <span class="fw-bold">Total:</span>
+                            <span class="fw-bold text-success">₹${total}</span>
+                        </div>
+                        <div class="text-muted small mt-2">${cart.length} item${cart.length > 1 ? 's' : ''}</div>
+                    </div>
+                `,
                 showCancelButton: true,
-                confirmButtonText: 'Place Order'
+                confirmButtonText: '✓ Place Order',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#28a745',
+                cancelButtonColor: '#6c757d',
+                width: '500px'
             });
 
             if (result.isConfirmed) placeOrder(total);
         }
 
         async function placeOrder(total) {
-            Swal.showLoading();
+            Swal.fire({
+                title: 'Placing Order...',
+                text: 'Please wait',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+
             const payload = {
                 studentId: STUDENT_ID,
                 totalAmount: total,
@@ -138,16 +321,36 @@
             };
 
             try {
-                await fetch(`${API_URL}/createOrder`, {
-                    method: 'POST', 
+                const response = await fetch(`${API_URL}/createOrder`, {
+                    method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload)
                 });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
                 cart = [];
                 document.getElementById('cart-count').innerText = 0;
-                Swal.fire('Sent!', `Order sent. Your ID: ${STUDENT_ID}`, 'success');
+
+                Swal.fire({
+                    title: 'Order Placed!',
+                    html: `Your order has been sent to the kitchen.<br><small class="text-muted">Order ID: ${result.id || 'Pending'}</small><br><small class="text-muted">Student ID: ${STUDENT_ID}</small>`,
+                    icon: 'success',
+                    confirmButtonText: 'Great!',
+                    timer: 5000,
+                    timerProgressBar: true
+                });
             } catch (e) {
-                Swal.fire('Error', 'Failed to send order', 'error');
+                console.error('Order placement failed:', e);
+                Swal.fire({
+                    title: 'Order Failed',
+                    text: 'Could not place order. Please check your connection and try again.',
+                    icon: 'error',
+                    confirmButtonText: 'Retry'
+                });
             }
         }
 
