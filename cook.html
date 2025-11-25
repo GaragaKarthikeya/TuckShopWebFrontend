@@ -46,7 +46,7 @@
         
         // Setup Connection
         const connection = new signalR.HubConnectionBuilder()
-            .withUrl(${API_URL})
+            .withUrl(API_URL)
             .withAutomaticReconnect()
             .configureLogging(signalR.LogLevel.Information)
             .build();
